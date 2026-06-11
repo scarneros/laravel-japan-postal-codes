@@ -75,8 +75,8 @@ return [
         |
         */
         'csv_urls' => [
-            'jp' => 'https://www.post.japanpost.jp/zipcode/dl/kogaki/zip/ken_all.zip',
-            'romaji' => 'https://www.post.japanpost.jp/zipcode/dl/roman/ken_all_rome.zip',
+            'jp' => 'https://www.post.japanpost.jp/service/search/zipcode/download/kogaki/zip/ken_all.zip',
+            'romaji' => 'https://www.post.japanpost.jp/service/search/zipcode/download/roman/KEN_ALL_ROME.zip',
         ],
     ],
 

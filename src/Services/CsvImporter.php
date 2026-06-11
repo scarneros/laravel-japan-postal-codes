@@ -13,8 +13,13 @@ class CsvImporter
 
     /**
      * Import a CSV file by type ('jp' or 'romaji').
+     *
+     * When $overwrite is false (import), existing rows are only updated where
+     * fields are NULL — safe for merging two CSVs without data loss.
+     * When $overwrite is true (update), existing rows are overwritten with
+     * fresh CSV data.
      */
-    public function import(string $filePath, string $type, int $chunkSize = 500): array
+    public function import(string $filePath, string $type, int $chunkSize = 500, bool $overwrite = false): array
     {
         if (! file_exists($filePath) || ! is_readable($filePath)) {
             throw new \RuntimeException("File not found or not readable: {$filePath}");
@@ -48,7 +53,7 @@ class CsvImporter
             $batch[] = $parsed;
 
             if (count($batch) >= $chunkSize) {
-                [$ins, $upd] = $this->upsertBatch($batch, $type);
+                [$ins, $upd] = $this->upsertBatch($batch, $type, $overwrite);
                 $inserted += $ins;
                 $updated += $upd;
                 $batch = [];
@@ -57,7 +62,7 @@ class CsvImporter
 
         // Process remaining rows
         if (! empty($batch)) {
-            [$ins, $upd] = $this->upsertBatch($batch, $type);
+            [$ins, $upd] = $this->upsertBatch($batch, $type, $overwrite);
             $inserted += $ins;
             $updated += $upd;
         }
@@ -147,25 +152,23 @@ class CsvImporter
     /**
      * Upsert a batch of rows. Existing rows are only updated where fields are NULL.
      */
-    protected function upsertBatch(array $batch, string $type): array
+    protected function upsertBatch(array $batch, string $type, bool $overwrite): array
     {
         $table = config('japan-postal-codes.table_name', 'japan_postal_codes');
         $inserted = 0;
         $updated = 0;
 
-        DB::transaction(function () use ($batch, $type, $table, &$inserted, &$updated) {
+        DB::transaction(function () use ($batch, $type, $table, $overwrite, &$inserted, &$updated) {
             foreach ($batch as $data) {
                 $existing = DB::table($table)
                     ->where('postal_code', $data['postal_code'])
                     ->first();
 
                 if (! $existing) {
-                    // Brand‑new row: insert everything we have
                     DB::table($table)->insert($data);
                     $inserted++;
                 } else {
-                    // Existing row: fill only the fields that are still NULL
-                    $updates = $this->buildMergeUpdates($existing, $data, $type);
+                    $updates = $this->buildMergeUpdates($existing, $data, $type, $overwrite);
 
                     if (! empty($updates)) {
                         $updates['updated_at'] = now();
@@ -183,21 +186,26 @@ class CsvImporter
         return [$inserted, $updated];
     }
 
-    protected function buildMergeUpdates(object $existing, array $incoming, string $type): array
+    protected function buildMergeUpdates(object $existing, array $incoming, string $type, bool $overwrite): array
     {
         $updates = [];
 
-        // Fields that may be filled by either file
         $fillableFields = match ($type) {
-            'jp' => ['prefecture', 'city', 'town',
-                'prefecture_kana', 'city_kana', 'town_kana'],
-            'romaji' => ['prefecture', 'city', 'town',
-                'prefecture_romaji', 'city_romaji', 'town_romaji'],
+            'jp' => ['prefecture', 'city', 'town', 'prefecture_kana', 'city_kana', 'town_kana'],
+            'romaji' => ['prefecture', 'city', 'town', 'prefecture_romaji', 'city_romaji', 'town_romaji'],
         };
 
         foreach ($fillableFields as $field) {
-            if (empty($existing->{$field}) && ! empty($incoming[$field])) {
-                $updates[$field] = $incoming[$field];
+            if ($overwrite) {
+                // Overwrite mode: update if incoming has a non-empty value
+                if (! empty($incoming[$field])) {
+                    $updates[$field] = $incoming[$field];
+                }
+            } else {
+                // Merge mode: only fill NULL fields
+                if (empty($existing->{$field}) && ! empty($incoming[$field])) {
+                    $updates[$field] = $incoming[$field];
+                }
             }
         }
 

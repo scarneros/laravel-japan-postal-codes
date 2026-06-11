@@ -15,7 +15,7 @@ return new class extends Migration
 
         Schema::create($tableName, function (Blueprint $table) {
             $table->id();
-            $table->string('postal_code', 7)->index();          // e.g. 1600023
+            $table->string('postal_code', 7)->index(); // e.g. 1600023
             $table->string('postal_code_formatted', 8)->index(); // e.g. 160-0023
 
             $table->string('prefecture');
